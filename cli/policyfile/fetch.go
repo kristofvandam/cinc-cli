@@ -82,36 +82,75 @@ func (f *Fetcher) EnsureCookbook(ctx context.Context, name string, lock cinc.Coo
 	if lock.CacheKey == "" {
 		return "", fmt.Errorf("cookbook %q: %s source has no cache_key to cache under", name, kind)
 	}
+	return f.cached(name, lock.CacheKey, func(staging string) error {
+		switch kind {
+		case cinc.SourceArtifactserver:
+			return f.fetchArtifactserver(ctx, name, value, lock.PinnedVersion(), staging)
+		case cinc.SourceChefServer:
+			return f.fetchChefServer(ctx, name, lock.PinnedVersion(), staging)
+		default:
+			return f.fetchGit(ctx, lock, value, staging)
+		}
+	})
+}
+
+// EnsureServerCookbook returns the directory holding version of cookbook name
+// as the server's /cookbooks serves it, cached under <name>-<version> the way
+// chef-cli caches a chef_server source.
+func (f *Fetcher) EnsureServerCookbook(ctx context.Context, name, version string) (string, error) {
+	return f.cached(name, name+"-"+version, func(staging string) error {
+		return f.fetchChefServer(ctx, name, version, staging)
+	})
+}
+
+// EnsureServerArtifact returns the directory holding the server's cookbook
+// artifact name at identifier, cached under <name>-<identifier> the way
+// chef-cli caches a chef_server_artifact source.
+func (f *Fetcher) EnsureServerArtifact(ctx context.Context, name, identifier string) (string, error) {
+	return f.cached(name, name+"-"+identifier, func(staging string) error {
+		if f.Chef == nil {
+			return fmt.Errorf("chef_server_artifact source requires a configured server connection")
+		}
+		cb, _, err := f.Chef.CookbookArtifacts.Get(ctx, name, identifier)
+		if err != nil {
+			return err
+		}
+		return f.Chef.Cookbooks.DownloadFiles(ctx, cb, staging)
+	})
+}
+
+// cached returns the cache entry for cookbook name under cacheKey, running
+// fetch to fill a fresh staging directory on a miss. A hit is the directory
+// existing; a miss stages into a directory of its own and renames it into
+// place, so a partly fetched cookbook is never visible and two fetches of the
+// same key at once both end up with the complete entry.
+func (f *Fetcher) cached(name, cacheKey string, fetch func(staging string) error) (string, error) {
 	// cache_key comes from the (untrusted) lock; keep it from escaping the cache.
-	dest, err := safeJoin(f.CacheRoot, lock.CacheKey)
+	dest, err := safeJoin(f.CacheRoot, cacheKey)
 	if err != nil {
 		return "", fmt.Errorf("cookbook %q: %w", name, err)
 	}
 	if isDir(dest) {
 		return dest, nil // cache hit
 	}
-
-	staging := dest + ".partial"
-	if err := os.RemoveAll(staging); err != nil {
+	if err := os.MkdirAll(f.CacheRoot, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(staging, 0o755); err != nil {
-		return "", err
-	}
-	switch kind {
-	case cinc.SourceArtifactserver:
-		err = f.fetchArtifactserver(ctx, name, value, lock.PinnedVersion(), staging)
-	case cinc.SourceChefServer:
-		err = f.fetchChefServer(ctx, name, lock.PinnedVersion(), staging)
-	case cinc.SourceGit:
-		err = f.fetchGit(ctx, lock, value, staging)
-	}
+	staging, err := os.MkdirTemp(f.CacheRoot, cacheKey+".partial-")
 	if err != nil {
+		return "", err
+	}
+	if err := fetch(staging); err != nil {
 		_ = os.RemoveAll(staging)
 		return "", fmt.Errorf("cookbook %q: %w", name, err)
 	}
 	if err := os.Rename(staging, dest); err != nil {
 		_ = os.RemoveAll(staging)
+		// A concurrent fetch of the same key renamed its complete copy
+		// into place first.
+		if isDir(dest) {
+			return dest, nil
+		}
 		return "", fmt.Errorf("cookbook %q: finalize cache entry: %w", name, err)
 	}
 	return dest, nil

@@ -1,0 +1,108 @@
+{
+  "revision_id": "65451bd08080bc22cfbc8d622b846a83ebc111b641d0e31cd14c90888421bf94",
+  "name": "include_path",
+  "run_list": [
+    "recipe[base::default]",
+    "recipe[app::default]"
+  ],
+  "named_run_lists": {
+    "setup": [
+      "recipe[util::default]"
+    ]
+  },
+  "included_policy_locks": [
+    {
+      "name": "base",
+      "revision_id": "8a09ff86ccc0d5a9f656affb94974981d6670c6a0875d6d2775d9571d0b2ef26",
+      "source_options": {
+        "path": "included/Policyfile.lock.json"
+      }
+    }
+  ],
+  "cookbook_locks": {
+    "app": {
+      "version": "0.3.0",
+      "identifier": "3e4f08dde501c0950cf55abdb0c75b2af2055aab",
+      "dotted_decimal_identifier": "17538348057166272.41954019458789575.100240007191211",
+      "source": "cookbooks/app",
+      "cache_key": null,
+      "scm_info": null,
+      "source_options": {
+        "path": "cookbooks/app"
+      }
+    },
+    "base": {
+      "version": "2.1.0",
+      "identifier": "6e6fcd3ba66f42e3df4713597843271bdbead543",
+      "dotted_decimal_identifier": "31085174697914178.64140316073621571.43000607200579",
+      "source": "cookbooks/base",
+      "cache_key": null,
+      "scm_info": null,
+      "source_options": {
+        "path": "cookbooks/base"
+      }
+    },
+    "util": {
+      "version": "1.0.0",
+      "identifier": "a5bbfa03ffddb89df5e9ec277bd95b659df9e3e1",
+      "dotted_decimal_identifier": "46650053640576440.44461956381768665.100492000224225",
+      "source": "cookbooks/util",
+      "cache_key": null,
+      "scm_info": null,
+      "source_options": {
+        "path": "cookbooks/util"
+      }
+    }
+  },
+  "default_attributes": {
+    "app": {
+      "port": 8080
+    },
+    "shared": "same",
+    "base": {
+      "tz": "UTC"
+    }
+  },
+  "override_attributes": {
+    "base": {
+      "hardening": true
+    }
+  },
+  "solution_dependencies": {
+    "Policyfile": [
+      [
+        "app",
+        ">= 0.0.0"
+      ],
+      [
+        "base",
+        "= 2.1.0"
+      ],
+      [
+        "util",
+        "= 1.0.0"
+      ]
+    ],
+    "dependencies": {
+      "app (0.3.0)": [
+        [
+          "base",
+          ">= 0.0.0"
+        ],
+        [
+          "util",
+          ">= 0.0.0"
+        ]
+      ],
+      "base (2.1.0)": [
+        [
+          "util",
+          "~> 1.0"
+        ]
+      ],
+      "util (1.0.0)": [
+
+      ]
+    }
+  }
+}

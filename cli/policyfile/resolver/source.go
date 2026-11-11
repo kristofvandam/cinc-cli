@@ -26,9 +26,13 @@ type cookbookInfo struct {
 	deps    []rubyeval.Dependency
 	dir     string // on-disk cookbook root
 
-	// Lock fields.
+	// Lock fields. A cached cookbook (fetched from a server) records
+	// cache_key and origin, a local one (path) records source.
 	source        string      // relative "source" path for local cookbooks
 	sourceOptions *jsonObject // ordered source_options for the lock
+	cached        bool
+	cacheKey      string
+	origin        string
 
 	fixed bool // version_fixed? (path/git resolve to a single version)
 }

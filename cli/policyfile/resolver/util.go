@@ -1,7 +1,9 @@
 package resolver
 
 import (
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -58,6 +60,18 @@ func runListItemName(item string) string {
 	return s
 }
 
+// runListItemKey identifies a run_list item the way Chef::RunList::RunListItem
+// equality does: by type, name and version, so "app" and "recipe[app]" are the
+// same item while "app" and "app::default" are not.
+func runListItemKey(item string) string {
+	typ, s := "recipe", item
+	if m := runListWrapperRE.FindStringSubmatch(s); m != nil {
+		typ, s = m[1], m[2]
+	}
+	name, version, _ := strings.Cut(s, "@")
+	return typ + "\x00" + name + "\x00" + version
+}
+
 // runListCookbookName returns the cookbook a run_list item maps to (the part
 // before "::"). chef does not special-case roles in a Policyfile run_list — a
 // role[web] item yields a cookbook demand "web" exactly as recipe[web] would —
@@ -95,6 +109,10 @@ func sortedVersionKeys(m map[string]Version) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	return slices.Sorted(maps.Keys(m))
 }
 
 // sortJSONObjectKeys sorts an object's key order lexically in place, matching

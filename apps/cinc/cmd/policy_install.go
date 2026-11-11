@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/cinc-project/cinc-cli/cli/policyfile"
 	"github.com/cinc-project/cinc-cli/cli/policyfile/resolver"
 	"github.com/cinc-project/cinc-cli/cli/policyfile/rubyeval"
 	"github.com/cinc-project/cinc-cli/cli/printer"
@@ -34,8 +36,11 @@ func newPolicyInstallCmd() *cobra.Command {
 			"resulting Policyfile.lock.json is byte-for-byte compatible with what\n" +
 			"`chef install` writes, so you can `cinc policy push` it straight to a\n" +
 			"Cinc/Chef Infra Server.\n\n" +
-			"Today path: cookbooks are the fully supported source. git:,\n" +
-			"Supermarket, and chef server sources aren't resolved yet.",
+			"Cookbooks resolve from path: sources and from a\n" +
+			"`default_source :chef_server` on the server your profile points at.\n" +
+			"include_policy reads a local lock (path:) or one on that server\n" +
+			"(server: with policy_group: or policy_revision_id:). git: and\n" +
+			"Supermarket sources aren't resolved yet.",
 		Example: `Resolve ./Policyfile.rb and write ./Policyfile.lock.json.
 cinc policy install
 
@@ -71,7 +76,10 @@ cinc policy install path/to/Policyfile.rb --format json`,
 				return fmt.Errorf("we couldn't evaluate %s:\n%w", pfPath, err)
 			}
 
-			result, err := resolver.Resolve(cmd.Context(), eng, eval, raw, filepath.Dir(pfPath))
+			result, err := resolver.Resolve(cmd.Context(), eval, resolver.Options{
+				Engine: eng, RawEval: raw, PolicyfileDir: filepath.Dir(pfPath),
+				Server: installServer(cmd, filepath.Dir(pfPath)),
+			})
 			if err != nil {
 				return fmt.Errorf("we couldn't resolve %s:\n%w", pfPath, err)
 			}
@@ -93,6 +101,35 @@ cinc policy install path/to/Policyfile.rb --format json`,
 	}
 	cmd.Flags().StringVar(&outFile, "output", "", "write the lock to this path instead of ./Policyfile.lock.json")
 	return cmd
+}
+
+// installServer opens the server a Policyfile names, in a
+// `default_source :chef_server` or an `include_policy ..., server:`, through
+// the selected profile. The resolver only calls it for a Policyfile that names
+// a server, so one with only path: cookbooks needs no credentials.
+func installServer(cmd *cobra.Command, lockDir string) func(url string) (resolver.ChefServer, error) {
+	return func(url string) (resolver.ChefServer, error) {
+		profile, err := resolveProfile(cmd)
+		if err != nil {
+			return nil, err
+		}
+		if err := profile.Validate(); err != nil {
+			return nil, err
+		}
+		profileURL := strings.TrimRight(profile.ServerURL, "/") + "/organizations/" + profile.Org
+		if strings.TrimRight(url, "/") != profileURL {
+			return nil, fmt.Errorf("your Policyfile uses the server at %s, but the profile you're using points at %s. Pick the profile for that server with --profile", url, profileURL)
+		}
+		c, err := clientForProfile(cmd, profile)
+		if err != nil {
+			return nil, err
+		}
+		fetcher, err := newFetcher(lockDir, c)
+		if err != nil {
+			return nil, err
+		}
+		return &policyfile.ChefServer{Fetcher: fetcher}, nil
+	}
 }
 
 // installSummary is the JSON shape printed for `--format json`: the resolved

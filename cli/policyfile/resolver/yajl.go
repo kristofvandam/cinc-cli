@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -39,6 +41,27 @@ func (o *jsonObject) set(key string, val any) {
 }
 
 func (o *jsonObject) len() int { return len(o.keys) }
+
+// str returns the string under key, or "" when there is none.
+func (o *jsonObject) str(key string) string {
+	s, _ := o.vals[key].(string)
+	return s
+}
+
+// object returns the object under key, or an empty one when there is none.
+func (o *jsonObject) object(key string) *jsonObject {
+	if v, ok := o.vals[key].(*jsonObject); ok {
+		return v
+	}
+	return newJSONObject()
+}
+
+// clone returns a shallow copy: the same values under a separate key order.
+func (o *jsonObject) clone() *jsonObject {
+	out := &jsonObject{keys: slices.Clone(o.keys), vals: make(map[string]any, len(o.vals))}
+	maps.Copy(out.vals, o.vals)
+	return out
+}
 
 // parseOrdered decodes raw JSON into the order-preserving value model: objects
 // become *jsonObject, arrays []any, numbers json.Number (so the exact numeric

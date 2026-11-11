@@ -20,8 +20,11 @@ resulting Policyfile.lock.json is byte-for-byte compatible with what
 `chef install` writes, so you can `cinc policy push` it straight to a
 Cinc/Chef Infra Server.
 
-Today path: cookbooks are the fully supported source. git:,
-Supermarket, and chef server sources aren't resolved yet.
+Cookbooks resolve from path: sources and from a
+`default_source :chef_server` on the server your profile points at.
+include_policy reads a local lock (path:) or one on that server
+(server: with policy_group: or policy_revision_id:). git: and
+Supermarket sources aren't resolved yet.
 
 ```
 cinc policy install [Policyfile.rb] [flags]

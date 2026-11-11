@@ -226,3 +226,12 @@ func (c Constraint) approx(target Version) bool {
 	}
 	return min.Compare(target) <= 0 && target.Compare(max) < 0
 }
+
+// lockString is the version as a lock writes it: the string it was parsed
+// from, so a universe key or metadata version round-trips verbatim.
+func (v Version) lockString() string {
+	if v.raw != "" {
+		return v.raw
+	}
+	return v.String()
+}

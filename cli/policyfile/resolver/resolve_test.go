@@ -42,7 +42,7 @@ func TestResolveMatchesChefGoldens(t *testing.T) {
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
-			res, err := Resolve(context.Background(), eng, eval, raw, dir)
+			res, err := Resolve(context.Background(), eval, Options{Engine: eng, RawEval: raw, PolicyfileDir: dir})
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
 			}

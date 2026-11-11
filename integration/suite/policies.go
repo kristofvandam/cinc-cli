@@ -34,6 +34,7 @@ var policyFamily = family{cases: []testCase{
 	{"policies/forbidden", []string{"policy delete", "policy-group delete", "policy push", "policy list"}, testPolicyForbidden},
 	{"policies/create", []string{"policy create"}, testPolicyCreate},
 	{"policies/install-errors", []string{"policy install"}, testPolicyInstallErrors},
+	{"policies/install-chef-server", []string{"policy install", "policy push"}, testPolicyInstallChefServer},
 }}
 
 // pushJSON pushes lockPath to group and returns the --format json summary.
@@ -825,11 +826,100 @@ func testPolicyInstallErrors(t *testing.T, tgt Target, c *cli) {
 		"name 'srv'\ndefault_source :chef_server, %q\nrun_list '%s::default'\ncookbook '%s'\n", c.orgURL(tgt.Org), cb, cb))
 	r := c.fail("policy", "install", filepath.Join(dir, "Policyfile.rb"))
 	if !strings.Contains(r.stderr, cb) || !strings.Contains(r.stderr, "path") {
-		t.Errorf("install of a chef_server cookbook should say only path sources resolve: %s", r)
+		t.Errorf("install of a cookbook the server doesn't have should name it and the sources we resolve: %s", r)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "Policyfile.lock.json")); err == nil {
 		t.Errorf("a failed install wrote a lock")
 	}
+
+	other := "https://cinc.invalid/organizations/elsewhere"
+	writeFile(t, filepath.Join(dir, "Policyfile.rb"), fmt.Sprintf(
+		"name 'srv'\ndefault_source :chef_server, %q\nrun_list '%s::default'\n", other, cb))
+	r = c.fail("policy", "install", filepath.Join(dir, "Policyfile.rb"))
+	if !strings.Contains(r.stderr, other) || !strings.Contains(r.stderr, "--profile") {
+		t.Errorf("install against a server the profile doesn't point at should say so: %s", r)
+	}
+}
+
+// testPolicyInstallChefServer resolves Policyfiles against the server the
+// profile points at: a default_source :chef_server supplies the newest
+// cookbook a constraint allows, and an include_policy of a policy pushed to a
+// group pins that policy's cookbooks to the artifacts it locked and merges its
+// run list and attributes, the way chef-cli does.
+func testPolicyInstallChefServer(t *testing.T, tgt Target, c *cli) {
+	requireRuby(t, c)
+	api := adminAPI(t, tgt, tgt.Org)
+	base, app, group := uniqueName(t, "policy"), uniqueName(t, "policy"), uniqueName(t, "pgroup")
+	util, lib, web := uniqueName(t, "cb"), uniqueName(t, "cb"), uniqueName(t, "cb")
+	cleanupArtifacts(c, api, util, lib, web)
+	cleanupPolicy(c, base, group)
+	cleanupPolicy(c, app, group)
+
+	for _, v := range []string{"1.0.0", "1.2.0", "2.0.0"} {
+		repo := t.TempDir()
+		writeCookbook(t, repo, util, util, v)
+		c.run("cookbook", "upload", util, "--cookbook-path", repo)
+		c.cleanup("cookbook", "delete", util, v)
+	}
+	repo := t.TempDir()
+	writeCookbook(t, repo, lib, lib, "3.1.0", fmt.Sprintf("'%s', '~> 1.0'", util))
+	writeCookbook(t, repo, web, web, "0.4.0", fmt.Sprintf("'%s'", lib))
+	c.run("cookbook", "upload", lib, web, "--cookbook-path", repo)
+	c.cleanup("cookbook", "delete", lib, "3.1.0")
+	c.cleanup("cookbook", "delete", web, "0.4.0")
+
+	type cookbookLock struct {
+		Version       string         `json:"version"`
+		Identifier    string         `json:"identifier"`
+		CacheKey      string         `json:"cache_key"`
+		SourceOptions map[string]any `json:"source_options"`
+	}
+	var lock struct {
+		RunList             []string                  `json:"run_list"`
+		CookbookLocks       map[string]cookbookLock   `json:"cookbook_locks"`
+		Defaults            map[string]map[string]any `json:"default_attributes"`
+		IncludedPolicyLocks []struct {
+			Name string `json:"name"`
+		} `json:"included_policy_locks"`
+	}
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "Policyfile.rb"), fmt.Sprintf(`name '%s'
+default_source :chef_server, %q
+run_list '%s::default'
+default['%[1]s']['tz'] = 'UTC'
+`, base, c.orgURL(tgt.Org), lib))
+	c.run("policy", "install", filepath.Join(baseDir, "Policyfile.rb"))
+	readJSONFile(t, filepath.Join(baseDir, "Policyfile.lock.json"), &lock)
+	wantEqual(t, "base util version", lock.CookbookLocks[util].Version, "1.2.0")
+	wantEqual(t, "base util cache_key", lock.CookbookLocks[util].CacheKey, util+"-1.2.0")
+	wantEqual(t, "base util source", lock.CookbookLocks[util].SourceOptions["chef_server"], any(c.orgURL(tgt.Org)))
+	baseUtil := lock.CookbookLocks[util].Identifier
+	pushJSON(c, group, filepath.Join(baseDir, "Policyfile.lock.json"))
+
+	appDir := t.TempDir()
+	writeFile(t, filepath.Join(appDir, "Policyfile.rb"), fmt.Sprintf(`name '%s'
+default_source :chef_server, %q
+include_policy '%[3]s', server: %[2]q, policy_group: '%[4]s'
+run_list '%[5]s::default'
+default['%[1]s']['port'] = 8080
+`, app, c.orgURL(tgt.Org), base, group, web))
+	lock.CookbookLocks, lock.Defaults = nil, nil
+	c.run("policy", "install", filepath.Join(appDir, "Policyfile.rb"))
+	readJSONFile(t, filepath.Join(appDir, "Policyfile.lock.json"), &lock)
+	wantSlice(t, "app run_list", lock.RunList, []string{"recipe[" + lib + "::default]", "recipe[" + web + "::default]"})
+	if lock.Defaults[base]["tz"] != "UTC" || lock.Defaults[app]["port"] != float64(8080) {
+		t.Errorf("app default_attributes = %v, want both policies' attributes", lock.Defaults)
+	}
+	if len(lock.IncludedPolicyLocks) != 1 || lock.IncludedPolicyLocks[0].Name != base {
+		t.Errorf("app included_policy_locks = %+v, want %s", lock.IncludedPolicyLocks, base)
+	}
+	wantEqual(t, "app util identifier", lock.CookbookLocks[util].Identifier, baseUtil)
+	wantEqual(t, "app util source", lock.CookbookLocks[util].SourceOptions["chef_server_artifact"], any(c.orgURL(tgt.Org)))
+	wantEqual(t, "app web source", lock.CookbookLocks[web].SourceOptions["chef_server"], any(c.orgURL(tgt.Org)))
+
+	got := pushJSON(c, group, filepath.Join(appDir, "Policyfile.lock.json"))
+	wantEqual(t, "app push cookbooks_uploaded", got.CookbooksUploaded, 1)
 }
 
 // readJSONFile decodes the JSON file at path into v.

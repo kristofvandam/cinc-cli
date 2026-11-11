@@ -1,0 +1,73 @@
+{
+  "revision_id": "8a09ff86ccc0d5a9f656affb94974981d6670c6a0875d6d2775d9571d0b2ef26",
+  "name": "base",
+  "run_list": [
+    "recipe[base::default]"
+  ],
+  "named_run_lists": {
+    "setup": [
+      "recipe[util::default]"
+    ]
+  },
+  "included_policy_locks": [
+
+  ],
+  "cookbook_locks": {
+    "base": {
+      "version": "2.1.0",
+      "identifier": "6e6fcd3ba66f42e3df4713597843271bdbead543",
+      "dotted_decimal_identifier": "31085174697914178.64140316073621571.43000607200579",
+      "source": "../cookbooks/base",
+      "cache_key": null,
+      "scm_info": null,
+      "source_options": {
+        "path": "../cookbooks/base"
+      }
+    },
+    "util": {
+      "version": "1.0.0",
+      "identifier": "a5bbfa03ffddb89df5e9ec277bd95b659df9e3e1",
+      "dotted_decimal_identifier": "46650053640576440.44461956381768665.100492000224225",
+      "source": "../cookbooks/util",
+      "cache_key": null,
+      "scm_info": null,
+      "source_options": {
+        "path": "../cookbooks/util"
+      }
+    }
+  },
+  "default_attributes": {
+    "base": {
+      "tz": "UTC"
+    },
+    "shared": "same"
+  },
+  "override_attributes": {
+    "base": {
+      "hardening": true
+    }
+  },
+  "solution_dependencies": {
+    "Policyfile": [
+      [
+        "base",
+        ">= 0.0.0"
+      ],
+      [
+        "util",
+        ">= 0.0.0"
+      ]
+    ],
+    "dependencies": {
+      "base (2.1.0)": [
+        [
+          "util",
+          "~> 1.0"
+        ]
+      ],
+      "util (1.0.0)": [
+
+      ]
+    }
+  }
+}
