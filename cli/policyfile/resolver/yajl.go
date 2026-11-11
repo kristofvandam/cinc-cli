@@ -273,7 +273,12 @@ func canonicalizeInto(b *strings.Builder, v any) {
 		b.WriteString(val)
 		b.WriteByte('"')
 	case json.Number:
-		b.WriteString(val.String())
+		// A Float canonicalizes as Kernel.format("%.15g"), an Integer as is.
+		s := val.String()
+		if f, err := val.Float64(); err == nil && strings.ContainsAny(s, ".eE") {
+			s = fmt.Sprintf("%.15g", f)
+		}
+		b.WriteString(s)
 	case bool:
 		if val {
 			b.WriteString("true")
